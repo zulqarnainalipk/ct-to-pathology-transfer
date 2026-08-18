@@ -1,152 +1,91 @@
 # Cross-Dimensional Episodic Transfer: CT to Few-Shot Pathology Classification
 
-Code and experiment outputs for *"Can a CT Scan Teach a Pathology Classifier?
-Cross-Dimensional Episodic Transfer from 3D Radiology to Few-Shot 2D
-Histopathology."* The full write-up (methodology, results, statistical
-analysis, and an explicit Limitations section) is in
-[`docs/paper.pdf`](docs/paper.pdf).
+This repository contains the code and saved outputs for **“Can a CT Scan Teach a Pathology Classifier?”** The project studies whether representations learned from 3D lung CT volumes can help a few-shot classifier work with 2D HNSCC histopathology images.
 
-This repository contains the exact training/evaluation code used to produce
-the numbers in the paper, split into readable modules, plus the saved
-experiment outputs (metrics, logs, plots, per-fold predictions) needed to
-reproduce every number and figure in the Results section.
+The work is deliberately organized as a research repository rather than a single notebook. The training, evaluation, analysis, and visualization steps are separated into modules, while the saved outputs make it possible to inspect the reported results without rerunning the full experiment immediately.
 
-## What this is
+## Research question
 
-A pathology classifier for head-and-neck squamous cell carcinoma (HNSCC)
-tissue tiles that is given access, at inference time, to a bank of features
-extracted from an unrelated, unlabeled collection of lung CT volumes. A 3D CT
-encoder is pretrained with contrastive self-supervision, frozen, and used to
-build a static feature bank; a 2D pathology encoder then retrieves the top-`k`
-most similar CT feature vectors for each pathology query and fuses them in
-through a cross-dimensional attention bridge (CDAM), a domain-adversarial
-alignment loss, and a prototypical few-shot classification head.
+The central question is simple: can an unlabeled bank of CT-derived features provide useful cross-dimensional context for a pathology classifier when the target pathology dataset is small?
 
-<p align="center">
-  <img src="docs/figures/pipeline.png" alt="Training pipeline overview" width="100%">
-</p>
+The pipeline pretrains a 3D CT encoder with contrastive self-supervision, freezes the resulting encoder, and builds a feature bank. For each pathology query, the 2D branch retrieves similar CT features and combines them through a cross-dimensional attention bridge (CDAM). The model also uses domain-adversarial alignment and a prototypical few-shot classification head.
 
-<p align="center">
-  <img src="docs/figures/architecture.png" alt="System architecture at inference time" width="100%">
-</p>
+![Research architecture for cross-dimensional transfer](docs/figures/architecture.png)
 
-## Results (grouped 3-fold cross-validation, 268 pathology samples / 42 patients)
+*Figure 1. Research architecture for the CT-to-pathology transfer experiment.*
 
-| Metric | Mean | 95% CI |
-|---|---|---|
-| Accuracy | 88.66% | [87.69%, 89.52%] |
-| Balanced accuracy | 88.26% | [87.92%, 88.78%] |
-| F1 (macro) | 0.884 | — |
-| AUC-ROC | 0.970 | [0.967, 0.973] |
-| Cohen's κ | 0.769 | [0.755, 0.778] |
+## Reported results
+
+The reported grouped three-fold cross-validation used 268 pathology samples from 42 patients.
+
+| Metric | Mean | 95% confidence interval |
+|---|---:|---:|
+| Accuracy | 88.66% | 87.69–89.52% |
+| Balanced accuracy | 88.26% | 87.92–88.78% |
+| Macro F1 | 0.884 | — |
+| AUC-ROC | 0.970 | 0.967–0.973 |
+| Cohen’s kappa | 0.769 | 0.755–0.778 |
 | MCC | 0.777 | — |
 
-<p align="center">
-  <img src="docs/figures/roc_curve.png" alt="ROC / precision-recall curves" width="48%">
-  <img src="docs/figures/reliability_diagram.png" alt="Calibration reliability diagram" width="48%">
-</p>
+These numbers should be read together with the limitations. The saved reliability analysis indicates overconfidence on held-out data, and the study uses a small target dataset, weak threshold-derived labels, and a single-seed primary estimate. The project is therefore a research prototype, not a clinical tool.
 
-The reliability diagram above is intentionally included even though it shows
-a **negative** result: the model is measurably overconfident on held-out data
-(ECE ≈ 0.29) despite discriminating well. This and every other limitation
-(no post-hoc calibration applied, single-seed point estimate for the primary
-run, weak threshold-derived labels, small target dataset, etc.) is discussed
-in full in `docs/paper.pdf`, Limitations section — please read it before
-citing or building on these results.
+## Repository map
 
-## Repository structure
-
-```
-main.py            entry point -- run this (python main.py)
-config.py          ResearchConfig dataclass: every hyperparameter
-utils.py           seeding, logging, CI/bootstrap math, InfoNCE loss,
-                    CT-feature retrieval, grouped CV splitting, fold manifests
-datasets.py         CT3DVolumeDataset, PathologyMultiChannelDataset, augmentations
-models.py           3D/2D encoders, CDAM, gradient-reversal discriminator,
-                    prototypical network, CrossDomainTransferModel
-training.py         CT SSL pretraining, pathology SSL control, episodic
-                    meta-learning training loop
-evaluation.py       per-fold evaluation, full-dataset inference
-analysis.py         metrics, ablation runner, calibration/clinical metrics,
-                    robustness/interpretability analysis, report generation
-visualization.py    all matplotlib/seaborn figure generation
+```text
+main.py             Full experiment entry point
+config.py           ResearchConfig and experiment settings
+datasets.py         CT and pathology datasets and augmentations
+models.py           Encoders, CDAM, discriminator, and prototype head
+training.py         Self-supervision and episodic training loops
+evaluation.py       Fold evaluation and inference
+analysis.py          Metrics, ablations, calibration, and reports
+visualization.py     Figures and visual summaries
+utils.py             Reproducibility, retrieval, splitting, and logging
 
 docs/
-  paper.pdf          full paper (methodology, results, limitations, references)
-  figures/           key figures also embedded above
+  paper.pdf          Research write-up, methods, results, and limitations
+  architecture.mmd   Source for the system architecture diagram
+  architecture.png   Rendered architecture diagram
 
-outputs/             saved artifacts from the run reported in the paper
-  final_results.json           aggregated cross-validation metrics + 95% CIs
-  analysis/fold_{0,1,2}/        per-fold results.json + manifest.json (patient IDs per split)
-  inference/                    full-dataset inference CSV + summary JSON
-  logs/                         experiment.log (structured) + full_console_output.log (raw)
-  plots/                        every figure generated during the run (382 files)
-  transfer_summary/             cross-fold summary plot
-  research_report.{html,tex}    auto-generated report from the run
+outputs/
+  final_results.json Saved aggregate results
+  research_report.* Generated report files
 ```
 
-**Not included:** trained model checkpoints (`.pt` files, ~400MB total —
-the CT SSL encoder and the 6 best-fold/k-shot pathology models). They are
-excluded to keep this repository lightweight and clonable. To regenerate
-them, run `main.py` end to end (see below) — the grouped CV splits are fixed
-by the manifests in `outputs/analysis/fold_*/manifest.json`, so a re-run with
-the same seed reproduces the same splits. If you need the exact original
-checkpoints rather than regenerating them, open an issue or contact the
-author.
+## Quick start
 
-## Setup
-
-```
+```bash
+git clone https://github.com/zulqarnainalipk/ct-to-pathology-transfer.git
+cd ct-to-pathology-transfer
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-Tested with Python 3.9+ and the package versions pinned in
-`requirements.txt`. `faiss` and `umap-learn` are optional — the code detects
-their absence at import time and falls back automatically (exact top-k
-retrieval instead of ANN; no UMAP panel in the embedding-alignment figure).
-
-## Data
-
-This code expects two publicly available TCIA collections, **not included in
-this repository** (see their own data-use terms):
-
-- **LungCT-Diagnosis** — https://www.cancerimagingarchive.net/collection/lungct-diagnosis/ (DOI: `10.7937/K9/TCIA.2015.A6V7JIWX`)
-- **HNSCC-mIF-mIHC-Comparison** — https://www.cancerimagingarchive.net/collection/hnscc-mif-mihc-comparison/ (DOI: `10.7937/TCIA.2020.T90F-WB82`)
-
-Both collections are de-identified per HIPAA Safe Harbor; no additional
-ethical approval was required for this secondary analysis. After downloading,
-point `config.py`'s `ct_data_dir` / `pathology_data_dir` (or the
-corresponding fields you pass into `ResearchConfig`) at your local copies.
-
-## Running
-
-```
 python main.py
 ```
 
-This runs CT SSL pretraining, then grouped 3-fold cross-validation (training
-+ evaluation + the full Phase 1-10 analysis suite per fold/k-shot), then
-full-dataset inference, writing everything to `./research_3d2d_transfer/`
-(same layout as `outputs/` in this repo). Edit the fields at the top of
-`config.py` (or construct a custom `ResearchConfig` and call `main.main()`
-— note that `main.py`'s module-level `main()` function reads the global `CFG`
-instance from `config.py`) to point at your data and adjust hyperparameters.
+The original CT and pathology collections are not included. Configure their local paths in `config.py` before running. A full run includes CT self-supervised pretraining, grouped cross-validation, evaluation, analysis, and inference; a GPU is strongly recommended.
 
-A full run trains a CT encoder plus 6 pathology models (2 k-shot values × 3
-folds) end to end; a GPU is strongly recommended.
+## Reproducibility notes
+
+The repository keeps fold manifests and saved outputs so that the reported split structure can be inspected. Large trained checkpoints are intentionally not committed. This keeps the repository practical to clone and makes the distinction between source code, generated artifacts, and external data clear.
 
 ## Citation
 
-A formal citation (with venue/DOI) will be added once this work is
-published. In the meantime:
+```text
+Ali, Z. “Can a CT Scan Teach a Pathology Classifier? Cross-Dimensional
+Episodic Transfer from 3D Radiology to Few-Shot 2D Histopathology.” 2026.
+```
 
-```
-Ali, Z. "Can a CT Scan Teach a Pathology Classifier? Cross-Dimensional
-Episodic Transfer from 3D Radiology to Few-Shot 2D Histopathology." 2026.
-```
+## Author
+
+**Zulqarnain Ali**  
+Machine Learning Researcher  
+Email: [zulqar445ali@gmail.com](mailto:zulqar445ali@gmail.com)  
+Website: [zulqarnainali.com](https://zulqarnainali.com)  
+GitHub: [github.com/zulqarnainalipk](https://github.com/zulqarnainalipk)  
+LinkedIn: [linkedin.com/in/zulqarnainalipk](https://linkedin.com/in/zulqarnainalipk)  
+ORCID: [0009-0009-0281-882X](https://orcid.org/0009-0009-0281-882X)
 
 ## License
 
-Code in this repository is released under the MIT License (see `LICENSE`).
-This does not cover the TCIA datasets referenced above, which have their own
-data-use terms.
+The code is released under the MIT License. The external datasets have their own access conditions and data-use terms.
