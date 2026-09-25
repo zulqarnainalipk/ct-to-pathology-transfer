@@ -1,0 +1,155 @@
+flowchart TB
+
+%% ============ (a) PHASE 1 ============
+subgraph P1["<b>(a) Phase 1 (offline): CT self-supervised pretraining</b>"]
+  direction LR
+  CTIN["<b>61 unlabelled CT volumes</b><br>1×16×128×128, 16 slices<br>HU [−1000, 400]"]
+  E3D["<b>E<sub>3D</sub></b>: 4 × [2 × (Conv3d 3³,<br>BN, ReLU)], 32→64→128→256<br>ch, max-pool ×3, GAP →<br>Linear 256→512, LN, ReLU"]
+  GSSL["<b>g<sub>CT</sub><sup>SSL</sup></b> (discarded)<br>512→256→256"]
+  LNT(["ℒ<sub>NT-Xent</sub><br>τ = 0.2, 50 epochs"])
+  E3DF["<b>E<sub>3D</sub> ❄ frozen</b><br>one pass per volume"]
+  BANK[("<b>CT bank B</b><br>61 × 512")]
+  CTIN -->|"2 aug. views<br>v, v′"| E3D
+  E3D -->|"512"| GSSL
+  GSSL l1@-.->|"z, z′"| LNT
+  E3D ==>|"copy θ*"| E3DF
+  CTIN --> E3DF
+  E3DF -->|"61×512"| BANK
+end
+
+%% ============ (b) ENCODER + RETRIEVAL ============
+subgraph P2["<b>(b) Phase 2: pathology encoder and top-k CT retrieval</b>"]
+  direction LR
+  TILE["<b>multiplex tile</b><br>5×224×224<br>CD3, CD8, FoxP3,<br>PanCK, DAPI"]
+  E2D["<b>E<sub>2D</sub></b>: Conv 3×3, 1→16 per marker (×5)<br>channel attention a ∈ (0,1)<sup>5</sup>, map<sub>i</sub> × a<sub>i</sub><br>concat (80 ch) → 4 conv stages 32→256<br>GAP → Linear 256→512, LN, ReLU"]
+  BP[("B<br>61×512")]
+  RET["<b>top-k retrieval</b><br>s = cos(<b>sg</b>(f<sub>path</sub>), B) ∈ ℝ<sup>61</sup><br>k = 5 → B<sub>k</sub>, s<sub>k</sub>"]
+  WS["<b>weighted sum</b><br>w = softmax(s<sub>k</sub> / 0.1)<br>r = Σ<sub>i</sub> w<sub>i</sub> b<sub>i</sub> ∈ ℝ<sup>512</sup>"]
+  TILE --> E2D
+  E2D -->|"f<sub>path</sub><br>512"| RET
+  BP --> RET
+  RET -->|"s<sub>k</sub>, B<sub>k</sub>"| WS
+end
+
+%% ============ (c) CDAM + GATED FUSION ============
+subgraph P3["<b>(c) Phase 2: cross-dimensional attention (CDAM) and gated fusion</b>"]
+  direction LR
+  FP2(["f<sub>path</sub> ∈ ℝ<sup>512</sup>"])
+  CK(["B<sub>k</sub> ∈ ℝ<sup>5×512</sup>"])
+  R2(["r ∈ ℝ<sup>512</sup>"])
+  CDAM["<b>CDAM</b> (8-head attention)<br>q = W<sub>q</sub>f<sub>path</sub><br>K = W<sub>k</sub>B<sub>k</sub> ; V = W<sub>v</sub>B<sub>k</sub><br>x<sub>1</sub> = LN(q + MHA(q, K, V))<br>x<sub>2</sub> = LN(x<sub>1</sub> + FFN(x<sub>1</sub>))<br>g<sub>1</sub> = σ(W<sub>g</sub>[q ; x<sub>2</sub>])<br>a = g<sub>1</sub> ⊙ x<sub>2</sub> + (1 − g<sub>1</sub>) ⊙ q<br>f<sub>att</sub> = LN(W<sub>o</sub>a + a)"]
+  AD["<b>adapter</b><br>r<sub>ad</sub> = GELU(LN(W<sub>ad</sub>r))"]
+  GATE["<b>transfer gate</b><br>concat [f<sub>path</sub> ; f<sub>att</sub> ; r<sub>ad</sub>]<br>→ MLP 1536→512→512, σ<br>g = 0.15 + 0.85 σ(·)"]
+  SUB(("−"))
+  MUL(("⊙"))
+  ADD1(("⊕"))
+  ADD2(("⊕"))
+  LNB["LN → f<sub>al</sub> ∈ ℝ<sup>512</sup><br>(after gated fusion)"]
+  FP2 -->|"query"| CDAM
+  CK -->|"keys, values"| CDAM
+  R2 --> AD
+  FP2 --> GATE
+  CDAM --> GATE
+  AD -->|"r<sub>ad</sub>"| GATE
+  CDAM -->|"+"| SUB
+  FP2 -->|"−"| SUB
+  SUB --> MUL
+  GATE -->|"g"| MUL
+  MUL --> ADD1
+  FP2 --> ADD1
+  ADD1 --> ADD2
+  AD -->|"× 0.2"| ADD2
+  ADD2 --> LNB
+end
+
+%% ============ (d) HEADS + TRAINING-ONLY BRANCHES ============
+subgraph P4["<b>(d) Heads, combined logits and training-only branches</b>"]
+  direction LR
+  FALP(["f<sub>al</sub> ∈ ℝ<sup>512</sup>"])
+  FPP(["f<sub>path</sub> ∈ ℝ<sup>512</sup>"])
+  RP(["r ∈ ℝ<sup>512</sup>"])
+  CLS["<b>linear classifier</b> 512→2 → ℓ<sub>cls</sub>"]
+  EPI["<b>episodic prototypes</b> (2 classes)<br>p<sub>n</sub> = mean of support f<sub>al</sub> ; ℓ<sub>epi</sub> = −‖f<sub>al</sub> − p<sub>n</sub>‖²"]
+  GLOB["<b>EMA global prototypes</b> (2 classes)<br>p<sub>n</sub><sup>g</sup> ← 0.85 p<sub>n</sub><sup>g</sup> + 0.15 sg(p<sub>n</sub>)<br>init: first support mean ; ℓ<sub>glob</sub> = −‖f<sub>al</sub> − p<sub>n</sub><sup>g</sup>‖²"]
+  SUM["<b>weighted sum</b><br>train: ℓ = 0.55ℓ<sub>cls</sub> + 0.45ℓ<sub>epi</sub><br>+ 0.30ℓ<sub>glob</sub><br>test: ℓ = 0.55ℓ<sub>cls</sub> + 0.30ℓ<sub>glob</sub>"]
+  PRED(["softmax →<br><b>p(tumour)</b><br>tumour vs<br>stroma"])
+  GRL["<b>GRL</b>: forward identity<br>backward −α·grad, α = 1"]
+  DIS["<b>D</b>: MLP<br>512→256→128→2"]
+  GP["<b>g<sub>path</sub></b> 512→256→256"]
+  GC["<b>g<sub>CT</sub></b> (Phase-2 head, new init) 512→256→256"]
+  NCE["InfoNCE<br>τ = 0.1"]
+  LCLS(["ℒ<sub>cls</sub>"])
+  LPRO(["ℒ<sub>proto</sub>"])
+  LCOMB(["ℒ<sub>comb</sub>, ℒ<sub>consist</sub>"])
+  LADV(["ℒ<sub>adv</sub>"])
+  LCTR(["ℒ<sub>ctr</sub>"])
+  FALP --> CLS
+  FALP --> EPI
+  FALP --> GLOB
+  CLS -->|"× 0.55"| SUM
+  EPI -->|"× 0.45 (train)"| SUM
+  GLOB -->|"× 0.30"| SUM
+  SUM -->|"ℓ ∈ ℝ²"| PRED
+  FALP -->|"f<sub>al</sub>: path"| GRL
+  RP -->|"r: CT"| GRL
+  GRL --> DIS
+  FPP --> GP
+  RP --> GC
+  GP -->|"z<sub>path</sub>"| NCE
+  GC -->|"z<sub>CT</sub>"| NCE
+  DIS l6@-.-> LADV
+  CLS l7@-.-> LCLS
+  EPI l8@-.-> LPRO
+  SUM l9@-.-> LCOMB
+  NCE l2@-.-> LCTR
+  GRL g1@-.->|"−α ∂ℒ<sub>adv</sub><br>/∂f<sub>al</sub>"| FALP
+end
+
+%% ============ (e) OBJECTIVE + LEGEND ============
+subgraph P5["<b>(e) Training objective (per episode)</b>"]
+  direction LR
+  LOSS["<b>ℒ = ℒ<sub>comb</sub> + 0.5ℒ<sub>cls</sub> + 0.5ℒ<sub>proto</sub> + 0.3ℒ<sub>adv</sub> + 0.1ℒ<sub>ctr</sub> + 0.1ℒ<sub>consist</sub> + ℒ<sub>usage</sub></b><br>ℒ<sub>comb</sub>, ℒ<sub>cls</sub>, ℒ<sub>proto</sub>: class-weighted CE on ℓ, ℓ<sub>cls</sub>, ℓ<sub>epi</sub> (query set)<br>ℒ<sub>consist</sub>: class-weighted CE on 0.55ℓ<sub>cls</sub> + 0.30ℓ<sub>glob</sub> (support set)<br>ℒ<sub>adv</sub> = ½[CE(D(f<sub>al</sub>), path) + CE(D(r), CT)]<br>ℒ<sub>ctr</sub>: symmetric InfoNCE, same-sample positives<br>ℒ<sub>usage</sub> = 0.2 ReLU(cos(f<sub>path</sub>, r) − cos(f<sub>al</sub>, r) + 0.05)<br>+ 0.05 ReLU(0.03 − ‖f<sub>al</sub> − f<sub>path</sub>‖)"]
+end
+
+subgraph LEG["<b>Legend</b>"]
+  direction LR
+  LA1[" "] -->|"forward"| LA2[" "]
+  LB1[" "] lb@-.->|"loss term"| LB2[" "]
+  LC1[" "] lc@-.->|"gradient (backward)"| LC2[" "]
+  LD1[" "] ==>|"weight copy"| LD2[" "]
+  LSYM["⊕ add · − subtract · ⊙ element-wise product<br>sg stop-gradient · ❄ frozen"]
+end
+
+P1 --> P2
+P2 --> P3
+P3 --> P4
+P4 ~~~ P5
+P4 ~~~ LEG
+
+%% ============ styles ============
+classDef ct fill:#e4eefa,stroke:#2f5f98,stroke-width:1.5px,color:#0f2a48
+classDef path fill:#f1e8f8,stroke:#6a3d9a,stroke-width:1.5px,color:#2e1245
+classDef fuse fill:#fff1de,stroke:#d9822b,stroke-width:1.5px,color:#4a2600
+classDef op fill:#ffffff,stroke:#d9822b,stroke-width:2px,color:#4a2600,font-size:18px,font-weight:bold
+classDef head fill:#e6f4e4,stroke:#3b8a3a,stroke-width:1.5px,color:#123d12
+classDef loss fill:#eeeeee,stroke:#7a7a7a,stroke-width:1.2px,color:#333333
+classDef tens fill:#ffffff,stroke:#444444,stroke-width:1.2px,color:#111111
+classDef adv fill:#f4f4f4,stroke:#555555,stroke-width:1.5px,color:#222222
+classDef blank fill:#ffffff,stroke:#ffffff,color:#ffffff
+classDef legtext fill:#ffffff,stroke:#ffffff,color:#222222
+
+class CTIN,E3D,GSSL,E3DF,BANK,BP,GC,RET,WS,AD ct
+class TILE,E2D,GP path
+class CDAM,GATE,LNB fuse
+class SUB,MUL,ADD1,ADD2 op
+class CLS,EPI,GLOB,SUM,PRED head
+class LNT,LCTR,LCLS,LPRO,LCOMB,LADV,LOSS,NCE loss
+class FP2,CK,R2,FALP,FPP,RP tens
+class GRL,DIS adv
+class LA1,LA2,LB1,LB2,LC1,LC2,LD1,LD2 blank
+class LSYM legtext
+
+classDef dotE stroke:#8a8a8a,stroke-width:1.6px,stroke-dasharray:2 3
+classDef gradE stroke:#b3261e,stroke-width:1.8px,stroke-dasharray:9 5
+class l1,l2,l6,l7,l8,l9,lb dotE
+class g1,lc gradE

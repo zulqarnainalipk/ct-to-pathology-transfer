@@ -1,0 +1,846 @@
+{
+ "condition": "ssl_t0.1",
+ "seed": 0,
+ "fold": 4,
+ "n_folds": 8,
+ "test_patient": "Case5",
+ "val_patient": "Case6",
+ "sizes": {
+  "train": 124,
+  "val": 24,
+  "test": 24
+ },
+ "class_counts": {
+  "train": [
+   54,
+   70
+  ],
+  "val": [
+   12,
+   12
+  ],
+  "test": [
+   12,
+   12
+  ]
+ },
+ "overrides": {
+  "ssl": [
+   50,
+   0.1,
+   50
+  ]
+ },
+ "config": {
+  "ct_data_dir": "/kaggle/input/datasets/zelza0/fyp-dataset/LungCT-Diagnosis/LungCT-Diagnosis",
+  "pathology_data_dir": "/kaggle/input/datasets/zelza0/fyp-dataset/PKG - HNSCC-mIF-mIHC",
+  "output_dir": "/kaggle/working/rev",
+  "label_mode": "roi_t_vs_s",
+  "legacy_mask_threshold": 0.05,
+  "pathology_channels": [
+   "CD3",
+   "CD8",
+   "FoxP3",
+   "PanCK",
+   "DAPI"
+  ],
+  "use_dapi_roi_mask": true,
+  "drop_channel": null,
+  "max_patients": null,
+  "max_tiles_per_class_per_patient": null,
+  "ct_volume_depth": 16,
+  "ct_slice_size": 128,
+  "ct_hu_window": [
+   -1000.0,
+   400.0
+  ],
+  "ct_max_volumes": null,
+  "ct_in_channels": 1,
+  "path_image_size": 224,
+  "path_in_channels": 5,
+  "device": "cuda:0",
+  "seed": 0,
+  "batch_size": 4,
+  "ssl_epochs": 50,
+  "ssl_temperature": 0.1,
+  "ssl_max_epochs": 50,
+  "ssl_lr": 0.0001,
+  "ssl_batch_size": 8,
+  "ssl_augmentation_strength": 0.5,
+  "ssl_eval_interval": 5,
+  "ct_bank": "ssl",
+  "retrieval_mode": "topk",
+  "ctr_positive": "retrieved",
+  "transfer_epochs": 30,
+  "transfer_lr": 0.0001,
+  "n_way": 2,
+  "k_shot": 2,
+  "n_query": 5,
+  "min_episodes_per_epoch": 20,
+  "max_episodes_per_epoch": 50,
+  "adversarial_lambda": 0.3,
+  "contrastive_lambda": 0.1,
+  "prototype_lambda": 0.5,
+  "uncertainty_threshold": 0.85,
+  "feature_dim": 512,
+  "projection_dim": 256,
+  "num_prototypes": 10,
+  "gradient_reversal_alpha": 1.0,
+  "cdam_top_k": 5,
+  "cdam_temperature": 0.1,
+  "use_cdam": true,
+  "use_domain_adversarial": true,
+  "use_prototypical_branch": true,
+  "use_contrastive_alignment": true,
+  "weight_decay": 0.0001,
+  "grad_clip": 1.0,
+  "use_amp": true,
+  "patience": 10,
+  "min_delta": 0.0001,
+  "transfer_gate_floor": 0.15,
+  "retrieval_residual_weight": 0.2,
+  "alignment_lambda": 0.2,
+  "transfer_usage_lambda": 0.05,
+  "alignment_margin": 0.05,
+  "min_transfer_shift": 0.03,
+  "global_proto_momentum": 0.85,
+  "episodic_proto_logit_weight": 0.45,
+  "global_proto_logit_weight": 0.3,
+  "classifier_logit_weight": 0.55,
+  "support_consistency_lambda": 0.1,
+  "bootstrap_iterations": 2000,
+  "ece_bins": 10
+ },
+ "test_metrics": {
+  "n": 24,
+  "accuracy": 1.0,
+  "balanced_accuracy": 1.0,
+  "f1_score_macro": 1.0,
+  "auc_roc": 1.0,
+  "cohen_kappa": 1.0,
+  "mcc": 1.0,
+  "sensitivity": 1.0,
+  "specificity": 1.0,
+  "ppv": 1.0,
+  "npv": 1.0,
+  "ece": 4.376928819382897e-10,
+  "brier": 2.4809549357430578e-18,
+  "confusion_matrix": [
+   [
+    12,
+    0
+   ],
+   [
+    0,
+    12
+   ]
+  ]
+ },
+ "records": [
+  {
+   "name": "Case5_S1_0_0",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 4.641039101794121e-16,
+   "topk": [
+    6,
+    16,
+    44,
+    47,
+    7
+   ],
+   "margin_cls": -3.24014949798584,
+   "margin_glob": -32.0662727355957,
+   "attn": [
+    0.21257,
+    0.27849,
+    0.13742,
+    0.19031,
+    0.18121
+   ],
+   "gate_mean": 0.6351299285888672
+  },
+  {
+   "name": "Case5_S1_0_1",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 3.9072526067031484e-16,
+   "topk": [
+    6,
+    16,
+    47,
+    44,
+    7
+   ],
+   "margin_cls": -3.3181533813476562,
+   "margin_glob": -32.160377502441406,
+   "attn": [
+    0.21172,
+    0.27876,
+    0.19033,
+    0.1378,
+    0.18139
+   ],
+   "gate_mean": 0.6347512006759644
+  },
+  {
+   "name": "Case5_S1_1_0",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 1.322785095705676e-15,
+   "topk": [
+    16,
+    50,
+    59,
+    6,
+    48
+   ],
+   "margin_cls": -2.916987419128418,
+   "margin_glob": -31.342052459716797,
+   "attn": [
+    0.24614,
+    0.14391,
+    0.14439,
+    0.27826,
+    0.18729
+   ],
+   "gate_mean": 0.635862410068512
+  },
+  {
+   "name": "Case5_S1_1_1",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 4.717615115390646e-16,
+   "topk": [
+    6,
+    16,
+    47,
+    7,
+    44
+   ],
+   "margin_cls": -3.271829843521118,
+   "margin_glob": -32.01823043823242,
+   "attn": [
+    0.21239,
+    0.27684,
+    0.19083,
+    0.18187,
+    0.13807
+   ],
+   "gate_mean": 0.6348392963409424
+  },
+  {
+   "name": "Case5_S2_0_0",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 6.730592083670217e-09,
+   "topk": [
+    47,
+    6,
+    7,
+    44,
+    22
+   ],
+   "margin_cls": -1.482263445854187,
+   "margin_glob": -17.334339141845703,
+   "attn": [
+    0.18527,
+    0.28387,
+    0.17158,
+    0.14808,
+    0.2112
+   ],
+   "gate_mean": 0.6357603073120117
+  },
+  {
+   "name": "Case5_S2_0_1",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 3.4674191550778874e-14,
+   "topk": [
+    50,
+    59,
+    16,
+    54,
+    6
+   ],
+   "margin_cls": -2.5351598262786865,
+   "margin_glob": -28.457626342773438,
+   "attn": [
+    0.14606,
+    0.14642,
+    0.26162,
+    0.17264,
+    0.27326
+   ],
+   "gate_mean": 0.63930743932724
+  },
+  {
+   "name": "Case5_S2_1_0",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 3.773863888056894e-09,
+   "topk": [
+    47,
+    7,
+    6,
+    44,
+    22
+   ],
+   "margin_cls": -1.545141577720642,
+   "margin_glob": -17.850025177001953,
+   "attn": [
+    0.18479,
+    0.17185,
+    0.28372,
+    0.14831,
+    0.21134
+   ],
+   "gate_mean": 0.6355143785476685
+  },
+  {
+   "name": "Case5_S2_1_1",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 1.1897069700922414e-13,
+   "topk": [
+    50,
+    59,
+    16,
+    48,
+    54
+   ],
+   "margin_cls": -2.395801544189453,
+   "margin_glob": -27.364097595214844,
+   "attn": [
+    0.16241,
+    0.1668,
+    0.2687,
+    0.205,
+    0.19709
+   ],
+   "gate_mean": 0.6379069685935974
+  },
+  {
+   "name": "Case5_S3_0_0",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 1.1094107200287397e-14,
+   "topk": [
+    47,
+    7,
+    22,
+    6,
+    41
+   ],
+   "margin_cls": -3.141866683959961,
+   "margin_glob": -28.990495681762695,
+   "attn": [
+    0.15526,
+    0.14886,
+    0.17393,
+    0.19478,
+    0.32718
+   ],
+   "gate_mean": 0.6327962875366211
+  },
+  {
+   "name": "Case5_S3_0_1",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 1.878809074260684e-15,
+   "topk": [
+    6,
+    16,
+    50,
+    59,
+    44
+   ],
+   "margin_cls": -3.0041613578796387,
+   "margin_glob": -30.90397834777832,
+   "attn": [
+    0.24767,
+    0.2711,
+    0.14171,
+    0.13845,
+    0.20108
+   ],
+   "gate_mean": 0.6366835832595825
+  },
+  {
+   "name": "Case5_S3_1_0",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 1.954502267767933e-15,
+   "topk": [
+    47,
+    7,
+    6,
+    22,
+    44
+   ],
+   "margin_cls": -3.3356447219848633,
+   "margin_glob": -30.53299903869629,
+   "attn": [
+    0.18293,
+    0.17524,
+    0.27139,
+    0.21366,
+    0.15678
+   ],
+   "gate_mean": 0.6323807835578918
+  },
+  {
+   "name": "Case5_S3_1_1",
+   "patient": "Case5",
+   "y": 0,
+   "prob": 4.50396693631351e-16,
+   "topk": [
+    6,
+    47,
+    44,
+    7,
+    16
+   ],
+   "margin_cls": -3.320401430130005,
+   "margin_glob": -32.0160026550293,
+   "attn": [
+    0.21072,
+    0.18899,
+    0.13873,
+    0.18101,
+    0.28055
+   ],
+   "gate_mean": 0.6342305541038513
+  },
+  {
+   "name": "Case5_T1_0_0",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    7,
+    22,
+    47,
+    9,
+    41
+   ],
+   "margin_cls": 2.6724040508270264,
+   "margin_glob": 21.51764678955078,
+   "attn": [
+    0.12336,
+    0.14794,
+    0.13145,
+    0.19302,
+    0.40423
+   ],
+   "gate_mean": 0.6355981826782227
+  },
+  {
+   "name": "Case5_T1_0_1",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    7,
+    47,
+    22,
+    9,
+    44
+   ],
+   "margin_cls": 3.001438617706299,
+   "margin_glob": 24.760744094848633,
+   "attn": [
+    0.16854,
+    0.18432,
+    0.20684,
+    0.2783,
+    0.16201
+   ],
+   "gate_mean": 0.6360162496566772
+  },
+  {
+   "name": "Case5_T1_1_0",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    7,
+    22,
+    47,
+    9,
+    44
+   ],
+   "margin_cls": 2.929504156112671,
+   "margin_glob": 24.084957122802734,
+   "attn": [
+    0.16862,
+    0.20729,
+    0.184,
+    0.27816,
+    0.16194
+   ],
+   "gate_mean": 0.6358473300933838
+  },
+  {
+   "name": "Case5_T1_1_1",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    7,
+    22,
+    47,
+    9,
+    44
+   ],
+   "margin_cls": 2.9204323291778564,
+   "margin_glob": 23.770130157470703,
+   "attn": [
+    0.16848,
+    0.20743,
+    0.18401,
+    0.27814,
+    0.16193
+   ],
+   "gate_mean": 0.6357942819595337
+  },
+  {
+   "name": "Case5_T2_0_0",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    51,
+    4,
+    21,
+    38,
+    47
+   ],
+   "margin_cls": 3.606985569000244,
+   "margin_glob": 28.325109481811523,
+   "attn": [
+    0.15518,
+    0.14437,
+    0.13894,
+    0.43416,
+    0.12735
+   ],
+   "gate_mean": 0.6412184238433838
+  },
+  {
+   "name": "Case5_T2_0_1",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    38,
+    47,
+    7,
+    51,
+    22
+   ],
+   "margin_cls": 2.6813571453094482,
+   "margin_glob": 20.84051513671875,
+   "attn": [
+    0.45999,
+    0.11498,
+    0.11453,
+    0.16125,
+    0.14924
+   ],
+   "gate_mean": 0.637934684753418
+  },
+  {
+   "name": "Case5_T2_1_0",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    51,
+    4,
+    38,
+    21,
+    19
+   ],
+   "margin_cls": 3.6223583221435547,
+   "margin_glob": 27.493566513061523,
+   "attn": [
+    0.16368,
+    0.12704,
+    0.42379,
+    0.14401,
+    0.14149
+   ],
+   "gate_mean": 0.6418026685714722
+  },
+  {
+   "name": "Case5_T2_1_1",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    47,
+    7,
+    51,
+    38,
+    22
+   ],
+   "margin_cls": 3.0674777030944824,
+   "margin_glob": 24.15730094909668,
+   "attn": [
+    0.11243,
+    0.11216,
+    0.16639,
+    0.46192,
+    0.14709
+   ],
+   "gate_mean": 0.6388005018234253
+  },
+  {
+   "name": "Case5_T3_0_0",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    47,
+    7,
+    38,
+    51,
+    22
+   ],
+   "margin_cls": 3.2040677070617676,
+   "margin_glob": 25.90827178955078,
+   "attn": [
+    0.11277,
+    0.11224,
+    0.46152,
+    0.167,
+    0.14647
+   ],
+   "gate_mean": 0.6389061212539673
+  },
+  {
+   "name": "Case5_T3_0_1",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    51,
+    38,
+    47,
+    7,
+    4
+   ],
+   "margin_cls": 3.495164632797241,
+   "margin_glob": 27.439048767089844,
+   "attn": [
+    0.16222,
+    0.44962,
+    0.12262,
+    0.12418,
+    0.14136
+   ],
+   "gate_mean": 0.6408412456512451
+  },
+  {
+   "name": "Case5_T3_1_0",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    47,
+    7,
+    38,
+    51,
+    4
+   ],
+   "margin_cls": 3.4863691329956055,
+   "margin_glob": 27.7268123626709,
+   "attn": [
+    0.12328,
+    0.12469,
+    0.44852,
+    0.16208,
+    0.14143
+   ],
+   "gate_mean": 0.6407938599586487
+  },
+  {
+   "name": "Case5_T3_1_1",
+   "patient": "Case5",
+   "y": 1,
+   "prob": 1.0,
+   "topk": [
+    51,
+    4,
+    47,
+    38,
+    7
+   ],
+   "margin_cls": 3.58872127532959,
+   "margin_glob": 28.430971145629883,
+   "attn": [
+    0.16263,
+    0.14171,
+    0.12322,
+    0.44833,
+    0.12412
+   ],
+   "gate_mean": 0.6413248181343079
+  }
+ ],
+ "history": [
+  {
+   "epoch": 1,
+   "train_loss": 10.951096534729004,
+   "train_acc": 0.79677414894104,
+   "val_acc": 0.5,
+   "val_bal_acc": 0.5,
+   "val_auc": 1.0,
+   "val_score": 0.44999999999999996
+  },
+  {
+   "epoch": 2,
+   "train_loss": 2.306424379348755,
+   "train_acc": 0.9838709235191345,
+   "val_acc": 0.6666666666666666,
+   "val_bal_acc": 0.6666666666666666,
+   "val_auc": 1.0,
+   "val_score": 0.6541666666666666
+  },
+  {
+   "epoch": 3,
+   "train_loss": 2.019070625305176,
+   "train_acc": 0.9806451797485352,
+   "val_acc": 0.9583333333333334,
+   "val_bal_acc": 0.9583333333333333,
+   "val_auc": 1.0,
+   "val_score": 0.9583115942028985
+  },
+  {
+   "epoch": 4,
+   "train_loss": 1.1314738988876343,
+   "train_acc": 0.9870967864990234,
+   "val_acc": 0.9583333333333334,
+   "val_bal_acc": 0.9583333333333333,
+   "val_auc": 1.0,
+   "val_score": 0.9583115942028985
+  },
+  {
+   "epoch": 5,
+   "train_loss": 0.9510706067085266,
+   "train_acc": 0.9903225898742676,
+   "val_acc": 0.9583333333333334,
+   "val_bal_acc": 0.9583333333333333,
+   "val_auc": 1.0,
+   "val_score": 0.9583115942028985
+  },
+  {
+   "epoch": 6,
+   "train_loss": 0.6842765808105469,
+   "train_acc": 0.9903225898742676,
+   "val_acc": 1.0,
+   "val_bal_acc": 1.0,
+   "val_auc": 1.0,
+   "val_score": 1.0
+  },
+  {
+   "epoch": 7,
+   "train_loss": 0.43068021535873413,
+   "train_acc": 0.9967741370201111,
+   "val_acc": 0.9583333333333334,
+   "val_bal_acc": 0.9583333333333333,
+   "val_auc": 1.0,
+   "val_score": 0.9583115942028985
+  },
+  {
+   "epoch": 8,
+   "train_loss": 0.42237356305122375,
+   "train_acc": 0.9935483336448669,
+   "val_acc": 1.0,
+   "val_bal_acc": 1.0,
+   "val_auc": 1.0,
+   "val_score": 1.0
+  },
+  {
+   "epoch": 9,
+   "train_loss": 0.2955802381038666,
+   "train_acc": 0.9967741370201111,
+   "val_acc": 1.0,
+   "val_bal_acc": 1.0,
+   "val_auc": 1.0,
+   "val_score": 1.0
+  },
+  {
+   "epoch": 10,
+   "train_loss": 0.3626910448074341,
+   "train_acc": 0.9967741370201111,
+   "val_acc": 1.0,
+   "val_bal_acc": 1.0,
+   "val_auc": 1.0,
+   "val_score": 1.0
+  },
+  {
+   "epoch": 11,
+   "train_loss": 0.2234456092119217,
+   "train_acc": 0.9967741370201111,
+   "val_acc": 1.0,
+   "val_bal_acc": 1.0,
+   "val_auc": 1.0,
+   "val_score": 1.0
+  },
+  {
+   "epoch": 12,
+   "train_loss": 0.15184339880943298,
+   "train_acc": 0.9935483336448669,
+   "val_acc": 1.0,
+   "val_bal_acc": 1.0,
+   "val_auc": 1.0,
+   "val_score": 1.0
+  },
+  {
+   "epoch": 13,
+   "train_loss": 0.10361402481794357,
+   "train_acc": 1.0,
+   "val_acc": 1.0,
+   "val_bal_acc": 1.0,
+   "val_auc": 1.0,
+   "val_score": 1.0
+  },
+  {
+   "epoch": 14,
+   "train_loss": 0.11063606292009354,
+   "train_acc": 1.0,
+   "val_acc": 1.0,
+   "val_bal_acc": 1.0,
+   "val_auc": 1.0,
+   "val_score": 1.0
+  },
+  {
+   "epoch": 15,
+   "train_loss": 0.2435419112443924,
+   "train_acc": 0.9967741370201111,
+   "val_acc": 1.0,
+   "val_bal_acc": 1.0,
+   "val_auc": 1.0,
+   "val_score": 1.0
+  },
+  {
+   "epoch": 16,
+   "train_loss": 0.19157670438289642,
+   "train_acc": 0.9967741370201111,
+   "val_acc": 1.0,
+   "val_bal_acc": 1.0,
+   "val_auc": 1.0,
+   "val_score": 1.0
+  }
+ ],
+ "best_epoch": 6,
+ "best_val_score": 1.0,
+ "epochs_run": 16,
+ "episodes_per_epoch": 31,
+ "k_shot_used": 2,
+ "n_query_used": 5,
+ "time_s": 85.2109146118164
+}
