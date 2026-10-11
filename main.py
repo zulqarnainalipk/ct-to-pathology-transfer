@@ -11,16 +11,22 @@ Pipeline
            prototypical heads, a domain discriminator (GRL) and InfoNCE.
   Protocol leave-one-patient-out cross-validation (8 patients), three seeds,
            pooled out-of-fold predictions, patient-level cluster bootstrap.
-  Controls pathology-only comparator, four replacement CT banks, random
+  Groups   A-C: pathology-only comparator, four replacement CT banks, random
            retrieval, test-time bank swap, InfoNCE with random positives,
            component ablations, SSL epoch/temperature sweeps, channel drop and a
            hand-crafted channel-statistics baseline.
+           D: reference runs with extended bank-swap diagnostics, PanCK removed,
+           tumour core vs margin, positive controls (PanCK-statistics and oracle
+           context), annotation budgets of 2/4/8/16 tiles per class, alternative
+           checkpoint selection, channel drop with three seeds, no DAPI mask.
 
 Usage
   python main.py --list                                   # conditions and run counts per group
   python main.py --run smoke --ct_dir D1 --path_dir D2    # tiny CPU smoke test
-  python main.py --run full  --ct_dir D1 --path_dir D2    # all groups, one worker per GPU
-  python main.py --run A     --ct_dir D1 --path_dir D2    # one independent group (A, B or C)
+  python main.py --run ABC   --ct_dir D1 --path_dir D2    # groups A+B+C, one worker per GPU
+  python main.py --run D     --ct_dir D1 --path_dir D2    # group D (D1+D2)
+  python main.py --run A     --ct_dir D1 --path_dir D2    # one group (A, B, C, D1 or D2)
+  python main.py --run full  --ct_dir D1 --path_dir D2    # all groups A-D
   python main.py --aggregate RESULTS_DIR --agg_out RESULTS_DIR/aggregate
 
 Run without arguments inside a notebook (``%run main.py``) to use the settings
@@ -80,8 +86,8 @@ rcParams.update({
 # USER SETTINGS  -- used when the file is run without arguments, e.g. in a
 # notebook cell:   %run main.py     (live progress bars per GPU)
 # =============================================================================
-RUN = 'full'                        # 'full' = groups A+B+C | 'A' | 'B' | 'C' | 'smoke' (tiny CPU test)
-OUTPUT_ROOT = './results_run'      # finished runs stored here are skipped when you run again
+RUN = 'full'                        # 'full' = A+B+C+D | 'ABC' | 'D' (= D1+D2) | 'A' | 'B' | 'C' | 'D1' | 'D2' | 'smoke'
+OUTPUT_ROOT = './results_run'       # finished runs stored here are skipped when you run again
 AGGREGATE_AFTER = True              # build tables/figures into OUTPUT_ROOT + '_aggregate' at the end
 ZIP_AFTER = True                    # write OUTPUT_ROOT + '_<RUN>_outputs.zip' for download
 WORKERS_PER_GPU = 2                 # parallel workers per GPU (~4 GB each) so the GPU never idles
@@ -99,11 +105,15 @@ class ResearchConfig:
     output_dir: str = './results_run'
 
     # ---- target task ----
-    label_mode: str = 'roi_t_vs_s'          # roi_t_vs_s | roi_tm_vs_s | legacy_mask
+    label_mode: str = 'roi_t_vs_s'          # roi_t_vs_s | roi_t_vs_m | roi_tm_vs_s | legacy_mask
+    train_budget_per_class: Optional[int] = None   # cap on unique labelled training tiles per class
+    context_source: str = 'ct'              # ct (retrieved CT bank) | panck_stats | oracle (positive controls)
+    val_rotation: str = 'next'              # validation patient: next | prev patient in the rotation
+    selection: str = 'early_stop'           # early_stop (best validation score) | last_epoch (no validation)
     legacy_mask_threshold: float = 0.05
     pathology_channels: Tuple[str, ...] = ('CD3', 'CD8', 'FoxP3', 'PanCK', 'DAPI')
     use_dapi_roi_mask: bool = True          # original label-blind DAPI ROI masking
-    drop_channel: Optional[str] = None      # channel zeroed at train+test (R2.5)
+    drop_channel: Optional[str] = None      # channel zeroed at train+test
     max_patients: Optional[int] = None      # smoke only
     max_tiles_per_class_per_patient: Optional[int] = None  # smoke only
 
@@ -185,26 +195,26 @@ SEEDS = (0, 1, 2)
 MAIN_SSL = (50, 0.2, 50)
 PATH_ONLY = dict(use_cdam=False, use_domain_adversarial=False, use_contrastive_alignment=False)
 CONDITIONS: Dict[str, Dict[str, Any]] = {
-    # headline + comparator (R1.2, R2.1)
+    # headline + comparator
     'main':             dict(),
     'path_only':        dict(PATH_ONLY),
     'main_k8':          dict(k_shot=8),
     'path_only_k8':     dict(PATH_ONLY, k_shot=8),
-    # CT-bank controls (R1.2, R1.5)
+    # CT-bank controls
     'bank_random_init': dict(ct_bank='random_init'),
     'bank_gaussian':    dict(ct_bank='gaussian'),
     'bank_dim_shuffle': dict(ct_bank='dim_shuffle'),
     'bank_mean':        dict(ct_bank='mean'),
     'retrieval_random': dict(retrieval_mode='random'),
-    # InfoNCE circularity + forced-usage controls (R1.5)
+    # InfoNCE circularity + forced-usage controls
     'ctr_random_pos':   dict(ctr_positive='random_bank'),
     'abl_free_gate':    dict(transfer_gate_floor=0.0, alignment_lambda=0.0, transfer_usage_lambda=0.0),
-    # component ablations (R1.5, R2.1)
+    # component ablations
     'abl_no_cdam':      dict(use_cdam=False),
     'abl_no_adv':       dict(use_domain_adversarial=False),
     'abl_no_ctr':       dict(use_contrastive_alignment=False),
     'abl_no_proto':     dict(use_prototypical_branch=False),
-    # SSL sensitivity (R1.3): epochs at tau=0.2 (snapshots of one 100-epoch run) and tau at 50 epochs
+    # SSL sensitivity: epochs at tau=0.2 (snapshots of one 100-epoch run) and tau at 50 epochs
     'ssl_e0':           dict(ssl=(0, 0.2, 100)),
     'ssl_e10':          dict(ssl=(10, 0.2, 100)),
     'ssl_e25':          dict(ssl=(25, 0.2, 100)),
@@ -217,8 +227,43 @@ CONDITIONS: Dict[str, Dict[str, Any]] = {
 for _ch in ('CD3', 'CD8', 'FoxP3', 'PanCK', 'DAPI'):
     CONDITIONS[f'drop_{_ch}'] = dict(drop_channel=_ch)
 
+# ---- additional analyses (group D) ------------------------------------------------
+PANCK_DROP = dict(drop_channel='PanCK')
+BUDGETS = (2, 4, 8, 16)
+CONDITIONS.update({
+    # reference runs of group D (identical configuration to 'main' / 'path_only')
+    'ref_main':             dict(),
+    'ref_path_only':        dict(PATH_ONLY),
+    # harder task 1: PanCK removed from the input
+    'hard_main':            dict(PANCK_DROP),
+    'hard_path_only':       dict(PATH_ONLY, **PANCK_DROP),
+    'hard_bank_gaussian':   dict(PANCK_DROP, ct_bank='gaussian'),
+    # harder task 2: tumour core versus tumour margin
+    'tm_main':              dict(label_mode='roi_t_vs_m'),
+    'tm_path_only':         dict(PATH_ONLY, label_mode='roi_t_vs_m'),
+    # positive controls (PanCK removed from the input, label-relevant context supplied instead of CT)
+    'pos_panck_context':    dict(PANCK_DROP, context_source='panck_stats'),
+    'pos_oracle_context':   dict(PANCK_DROP, context_source='oracle'),
+    # checkpoint-selection stability
+    'selprev_main':         dict(val_rotation='prev'),
+    'selprev_path_only':    dict(PATH_ONLY, val_rotation='prev'),
+    'sellast_main':         dict(selection='last_epoch'),
+    'sellast_path_only':    dict(PATH_ONLY, selection='last_epoch'),
+    # preprocessing without the DAPI-derived region mask
+    'nomask_main':          dict(use_dapi_roi_mask=False),
+    'nomask_path_only':     dict(PATH_ONLY, use_dapi_roi_mask=False),
+    'nomask_drop_DAPI':     dict(use_dapi_roi_mask=False, drop_channel='DAPI'),
+})
+for _b in BUDGETS:
+    CONDITIONS[f'budget{_b}_main'] = dict(train_budget_per_class=_b)
+    CONDITIONS[f'budget{_b}_path_only'] = dict(PATH_ONLY, train_budget_per_class=_b)
+
 # Conditions whose runs additionally store features + test-time bank swaps.
-EXTRAS_CONDITIONS = {'main'}
+EXTRAS_CONDITIONS = {'main', 'ref_main'}
+# deterministic hand-crafted baselines written by run_trivial_baseline: name -> (label_mode, drop PanCK features)
+TRIVIAL_BASELINES = {'trivial_channel_stats': ('roi_t_vs_s', False),
+                     'tm_trivial_channel_stats': ('roi_t_vs_m', False),
+                     'nopanck_trivial_channel_stats': ('roi_t_vs_s', True)}
 
 # Independent run groups (each can run in its own session / GPU).
 GROUPS: Dict[str, List[Tuple[str, Tuple[int, ...]]]] = {
@@ -230,7 +275,14 @@ GROUPS: Dict[str, List[Tuple[str, Tuple[int, ...]]]] = {
          + [(c, (0,)) for c in ('ssl_e0', 'ssl_e10', 'ssl_e25', 'ssl_e50', 'ssl_e100',
                                 'ssl_t0.05', 'ssl_t0.1', 'ssl_t0.5')]
          + [(f'drop_{c}', (0,)) for c in ('CD3', 'CD8', 'FoxP3', 'PanCK', 'DAPI')],
+    'D1': [(c, SEEDS) for c in ('ref_main', 'ref_path_only', 'hard_main', 'hard_path_only', 'hard_bank_gaussian',
+                                'tm_main', 'tm_path_only', 'pos_panck_context', 'pos_oracle_context',
+                                'selprev_main', 'selprev_path_only', 'sellast_main', 'sellast_path_only')],
+    'D2': [(f'budget{b}_{m}', SEEDS) for b in BUDGETS for m in ('main', 'path_only')]
+          + [(f'drop_{c}', SEEDS) for c in ('CD3', 'CD8', 'FoxP3', 'PanCK', 'DAPI')]
+          + [(c, SEEDS) for c in ('nomask_main', 'nomask_path_only', 'nomask_drop_DAPI')],
 }
+GROUP_SETS = {'all': ['A', 'B', 'C', 'D1', 'D2'], 'ABC': ['A', 'B', 'C'], 'D': ['D1', 'D2']}
 
 
 def condition_config(base: ResearchConfig, name: str, seed: int) -> ResearchConfig:
@@ -355,7 +407,7 @@ def info_nce_loss(features_2d: torch.Tensor, features_3d: torch.Tensor, temperat
 def retrieve_ct_context(query: torch.Tensor, bank: torch.Tensor, cfg: ResearchConfig,
                         gen: Optional[torch.Generator] = None):
     """Top-k cosine retrieval (as in the original), or k random bank entries
-    when cfg.retrieval_mode == 'random' (control, R1.2/R1.5)."""
+    when cfg.retrieval_mode == 'random' (control)."""
     bank = bank.to(query.device)
     qn, bn = F.normalize(query, dim=1), F.normalize(bank, dim=1)
     k = min(cfg.cdam_top_k, bank.size(0))
@@ -369,6 +421,37 @@ def retrieve_ct_context(query: torch.Tensor, bank: torch.Tensor, cfg: ResearchCo
     weights = F.softmax(sims / cfg.cdam_temperature, dim=1).unsqueeze(-1)
     retrieved = (neighbours * weights).sum(dim=1)
     return retrieved, idx, neighbours
+
+
+def get_context(query: torch.Tensor, bank: torch.Tensor, cfg: ResearchConfig,
+                gen: Optional[torch.Generator] = None, ctx: Optional[torch.Tensor] = None):
+    """Retrieved CT context, or a per-tile context vector supplied directly (positive controls)."""
+    if ctx is None:
+        return retrieve_ct_context(query, bank, cfg, gen)
+    k = cfg.cdam_top_k
+    tok = ctx.unsqueeze(1).expand(-1, k, -1).contiguous()
+    idx = torch.full((len(ctx), k), -1, dtype=torch.long, device=ctx.device)
+    return ctx, idx, tok
+
+
+def build_context_table(cfg: ResearchConfig, data: 'PathologyData', device) -> Optional[torch.Tensor]:
+    """[N, 512] context per tile for the positive controls (None for retrieved CT context).
+    panck_stats: standardized PanCK descriptor, fixed random projection to 512-d.
+    oracle: a fixed random vector per class plus per-tile noise (label-encoding; capacity check only)."""
+    if cfg.context_source == 'ct':
+        return None
+    g = np.random.default_rng(12345)
+    if cfg.context_source == 'panck_stats':
+        X = data.panck_features
+        X = (X - X.mean(0)) / (X.std(0) + 1e-6)
+        W = g.standard_normal((X.shape[1], cfg.feature_dim)) / np.sqrt(X.shape[1])
+        C = X @ W
+    elif cfg.context_source == 'oracle':
+        cls = g.standard_normal((cfg.n_way, cfg.feature_dim))
+        C = cls[data.labels] + 0.5 * g.standard_normal((len(data.labels), cfg.feature_dim))
+    else:
+        raise ValueError(cfg.context_source)
+    return torch.tensor(C, dtype=torch.float32, device=device)
 
 
 def compute_model_selection_score(m: Dict[str, float]) -> float:
@@ -420,7 +503,7 @@ def binary_metrics(y, p, threshold: float = 0.5, n_bins: int = 10) -> Dict[str, 
 # =============================================================================
 class PathologyData:
     """All pathology tiles held in memory. Patient = 'CaseN' prefix; label from
-    the ROI type in the file name ()."""
+    the ROI type in the file name."""
 
     def __init__(self, cfg: ResearchConfig, log: Logger):
         self.cfg = cfg
@@ -440,6 +523,8 @@ class PathologyData:
             legacy_label = int(legacy_ratio > cfg.legacy_mask_threshold)
             if cfg.label_mode == 'roi_t_vs_s':
                 label = {'T': 1, 'S': 0}.get(roi_type)
+            elif cfg.label_mode == 'roi_t_vs_m':
+                label = {'T': 1, 'M': 0}.get(roi_type)
             elif cfg.label_mode == 'roi_tm_vs_s':
                 label = {'T': 1, 'M': 1, 'S': 0}.get(roi_type)
             elif cfg.label_mode == 'legacy_mask':
@@ -472,6 +557,8 @@ class PathologyData:
 
         imgs = np.stack([self._load(r['paths']) for r in use]).astype(np.float32)
         self.raw_channel_stats = self._channel_stats(imgs)          # before ROI masking
+        self.panck_features = self._panck_features(imgs)            # positive-control context (label-free)
+        self.images_nomask = torch.from_numpy(imgs.copy())          # without the DAPI-derived mask
         if cfg.use_dapi_roi_mask:
             imgs = np.stack([self._dapi_roi(x) for x in imgs])
         self.images = torch.from_numpy(imgs)                        # [N, C, H, W] in [0, 1]
@@ -506,6 +593,17 @@ class PathologyData:
             roi = (ref > ref.mean() + 0.3 * ref.std()).astype(np.float32)
         return image * roi[None]
 
+    def _panck_features(self, imgs: np.ndarray) -> np.ndarray:
+        """Per-tile PanCK intensity descriptor: 16-bin histogram + mean, std, fraction > 0.2,
+        median and 90th percentile (computed before masking, without labels)."""
+        chans = self.cfg.pathology_channels
+        if 'PanCK' not in chans:
+            return np.zeros((len(imgs), 21), dtype=np.float32)
+        x = imgs[:, chans.index('PanCK')].reshape(len(imgs), -1)
+        hist = np.stack([np.histogram(v, bins=16, range=(0, 1))[0] / v.size for v in x])
+        extra = np.stack([x.mean(1), x.std(1), (x > 0.2).mean(1), np.median(x, 1), np.percentile(x, 90, axis=1)], 1)
+        return np.concatenate([hist, extra], 1).astype(np.float32)
+
     def _channel_stats(self, imgs: np.ndarray) -> np.ndarray:
         feats = []
         for c in range(imgs.shape[1]):
@@ -520,7 +618,7 @@ class PathologyData:
             per[r['patient']][r['roi_type']] += 1
         cross = Counter((r['roi_type'], r['legacy_label']) for r in rows)
         used = pd.DataFrame(self.rows)
-        # R2.5: how well does one hand-crafted channel statistic predict each label?
+        # how well does one hand-crafted channel statistic predict each label?
         chans = self.cfg.pathology_channels
         stat_auc = {}
         for i, ch in enumerate(chans):
@@ -556,7 +654,7 @@ def _safe_auc(y, s) -> float:
 
 
 def load_ct_volumes(cfg: ResearchConfig, cache_dir: str, log: Logger) -> Tuple[np.ndarray, List[str], Dict[str, Any]]:
-    """ True HU, z-sorted slices, `depth` slices spread uniformly over the series."""
+    """True HU, z-sorted slices, `depth` slices spread uniformly over the series."""
     import pydicom
     lo, hi = cfg.ct_hu_window
     key = f"ct_d{cfg.ct_volume_depth}_s{cfg.ct_slice_size}_w{int(lo)}_{int(hi)}_n{cfg.ct_max_volumes}"
@@ -1185,7 +1283,7 @@ def encode_ct(encoder: nn.Module, vols: torch.Tensor, bs: int = 8) -> torch.Tens
 
 
 def ssl_intrinsic_metrics(encoder: nn.Module, vols: torch.Tensor, cfg: ResearchConfig) -> Dict[str, float]:
-    """Label-free quality indicators of the CT representation (R1.3)."""
+    """Label-free quality indicators of the CT representation."""
     g = torch.Generator().manual_seed(12345)
     clean = F.normalize(encode_ct(encoder, vols), dim=1)
     v1 = F.normalize(encode_ct(encoder, augment_ct(vols, g, cfg.ssl_augmentation_strength)), dim=1)
@@ -1282,7 +1380,7 @@ def train_ssl(cfg: ResearchConfig, vols: torch.Tensor, out_dir: str, log: Logger
 
 
 class BankFactory:
-    """CT feature banks: SSL bank and the controls (R1.2/R1.5)."""
+    """CT feature banks: SSL bank and the controls."""
 
     def __init__(self, vols: torch.Tensor, root: str, log: Logger):
         self.vols, self.root, self.log = vols, root, log
@@ -1329,14 +1427,14 @@ def encode_path(model: CrossDomainTransferModel, x: torch.Tensor, cfg: ResearchC
 
 
 def forward_eval(model: CrossDomainTransferModel, x: torch.Tensor, bank: torch.Tensor, cfg: ResearchConfig,
-                 gen: Optional[torch.Generator] = None) -> Dict[str, torch.Tensor]:
+                 gen: Optional[torch.Generator] = None, ctx: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
     model.eval()
     out = defaultdict(list)
     with torch.no_grad():
         for i in range(0, len(x), 64):          # eval mode (BN frozen): batch size is free
             xb = x[i:i + 64]
             f, _ = encode_path(model, xb, cfg)
-            r, idx, tok = retrieve_ct_context(f, bank, cfg, gen)
+            r, idx, tok = get_context(f, bank, cfg, gen, None if ctx is None else ctx[i:i + 64])
             if cfg.use_cdam:
                 a = model.align_features(f, r, tok)
                 out['attn'].append(model.last_attention_weights.squeeze(1).cpu())
@@ -1346,7 +1444,7 @@ def forward_eval(model: CrossDomainTransferModel, x: torch.Tensor, bank: torch.T
             glob = model.compute_global_proto_logits(a) if cfg.use_prototypical_branch else None
             cls = model.classify(a)
             logits = model.combine_logits(cls, global_proto_logits=glob)
-            # R1.4: weighted tumour-vs-stroma logit margin contributed by each term
+            # weighted tumour-vs-stroma logit margin contributed by each term
             out['m_cls'].append((cfg.classifier_logit_weight * (cls[:, 1] - cls[:, 0])).cpu())
             if glob is not None:
                 out['m_glob'].append((cfg.global_proto_logit_weight * (glob[:, 1] - glob[:, 0])).cpu())
@@ -1357,7 +1455,8 @@ def forward_eval(model: CrossDomainTransferModel, x: torch.Tensor, bank: torch.T
 
 
 def train_fold(cfg: ResearchConfig, images: torch.Tensor, labels: torch.Tensor, bank: torch.Tensor,
-               tr: np.ndarray, va: np.ndarray, run_seed: int, log: Logger) -> Tuple[CrossDomainTransferModel, Dict]:
+               tr: np.ndarray, va: np.ndarray, run_seed: int, log: Logger,
+               ctx: Optional[torch.Tensor] = None) -> Tuple[CrossDomainTransferModel, Dict]:
     dev = cfg.device
     set_seed(run_seed)
     model = CrossDomainTransferModel(cfg).to(dev)
@@ -1405,8 +1504,8 @@ def train_fold(cfg: ResearchConfig, images: torch.Tensor, labels: torch.Tensor, 
             x_all = augment_path(images[sup + qry], g, gdev=gdev)
             f_all, z_all = encode_path(model, x_all, cfg)
             fs, fq, zq = f_all[:len(sup)], f_all[len(sup):], z_all[len(sup):]
-            rq, _, tq = retrieve_ct_context(fq.detach(), bank, cfg, g)
-            rs, _, ts = retrieve_ct_context(fs.detach(), bank, cfg, g)
+            rq, _, tq = get_context(fq.detach(), bank, cfg, g, None if ctx is None else ctx[qry])
+            rs, _, ts = get_context(fs.detach(), bank, cfg, g, None if ctx is None else ctx[sup])
             aq = model.align_features(fq, rq, tq) if cfg.use_cdam else fq
             as_ = model.align_features(fs, rs, ts) if cfg.use_cdam else fs
 
@@ -1430,7 +1529,7 @@ def train_fold(cfg: ResearchConfig, images: torch.Tensor, labels: torch.Tensor, 
                            torch.zeros(len(rq), dtype=torch.long, device=dev))
                 loss = loss + cfg.adversarial_lambda * 0.5 * (dl_p + dl_c)
             if cfg.use_contrastive_alignment:
-                if cfg.ctr_positive == 'random_bank':    # query-independent positives (R1.5 control)
+                if cfg.ctr_positive == 'random_bank':    # query-independent positives (control)
                     ct_side = bank[torch.randint(len(bank), (len(zq),), generator=g).to(dev)]
                 else:
                     ct_side = rq
@@ -1451,13 +1550,17 @@ def train_fold(cfg: ResearchConfig, images: torch.Tensor, labels: torch.Tensor, 
         sched.step()
         Progress.update(epoch=f"ep {epoch}/{cfg.transfer_epochs}")
 
-        ev = forward_eval(model, images[va], bank, cfg, torch.Generator().manual_seed(999))
+        ev = forward_eval(model, images[va], bank, cfg, torch.Generator().manual_seed(999),
+                          None if ctx is None else ctx[va])
         vm = binary_metrics(labels[va].cpu().numpy(), ev['prob'].numpy())
         score = compute_model_selection_score(vm)
         history.append({'epoch': epoch, 'train_loss': float(torch.stack(ep_loss).mean()), 'train_acc': float(torch.stack(ep_acc).mean()),
                         'val_acc': vm['accuracy'], 'val_bal_acc': vm['balanced_accuracy'],
                         'val_auc': vm['auc_roc'], 'val_score': score})
-        if score > best_score + cfg.min_delta:
+        if cfg.selection == 'last_epoch':            # no validation-based selection, no early stopping
+            best_score, best_epoch = score, epoch
+            best_state = {kk: v.detach().cpu().clone() for kk, v in model.state_dict().items()}
+        elif score > best_score + cfg.min_delta:
             best_score, best_epoch, patience = score, epoch, 0
             best_state = {kk: v.detach().cpu().clone() for kk, v in model.state_dict().items()}
         else:
@@ -1488,7 +1591,7 @@ def planned_folds(patients: List[str], smoke: bool) -> List[Tuple[int, str, str]
 
 
 def build_runs(group: str, patients: List[str], smoke: bool) -> List[Tuple[str, int, int, str, str]]:
-    groups = ['A', 'B', 'C'] if group == 'all' else [group]
+    groups = GROUP_SETS.get(group, [group])
     plan = planned_folds(patients, smoke)
     runs = []
     for gname in groups:
@@ -1516,12 +1619,16 @@ def condition_config_for(base: ResearchConfig, cond: str, seed: int, smoke: bool
     return cfg
 
 
-def run_trivial_baseline(data: PathologyData, root: str, log: Logger, smoke: bool) -> None:
-    """Hand-crafted per-channel intensity statistics + logistic regression, LOPO (R2.5)."""
+def run_trivial_baseline(data: PathologyData, root: str, log: Logger, smoke: bool,
+                         name: str = 'trivial_channel_stats', drop_panck: bool = False) -> None:
+    """Hand-crafted per-channel intensity statistics + logistic regression, LOPO."""
     X, y = data.raw_channel_stats, data.labels
+    if drop_panck:                                   # 3 statistics per channel, channel order as configured
+        j = list(data.cfg.pathology_channels).index('PanCK')
+        X = np.delete(X, [3 * j, 3 * j + 1, 3 * j + 2], axis=1)
     plan = planned_folds(data.patient_list, smoke)
     for f, tp, _ in plan:
-        out = os.path.join(run_dir(root, 'trivial_channel_stats', 0, f), 'result.json')
+        out = os.path.join(run_dir(root, name, 0, f), 'result.json')
         if os.path.exists(out):
             continue
         te = np.where(data.patients == tp)[0]
@@ -1529,10 +1636,10 @@ def run_trivial_baseline(data: PathologyData, root: str, log: Logger, smoke: boo
         clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, C=1.0))
         clf.fit(X[tr], y[tr])
         p = clf.predict_proba(X[te])[:, 1]
-        save_json({'condition': 'trivial_channel_stats', 'seed': 0, 'fold': f, 'n_folds': len(plan), 'test_patient': tp,
+        save_json({'condition': name, 'seed': 0, 'fold': f, 'n_folds': len(plan), 'test_patient': tp,
                    'records': [{'name': data.names[i], 'patient': tp, 'y': int(y[i]), 'prob': float(pp)}
                                for i, pp in zip(te, p)]}, out)
-    log("Trivial channel-statistics baseline done.")
+    log(f"Channel-statistics baseline '{name}' done.")
 
 
 def execute(args, base: ResearchConfig) -> None:
@@ -1551,12 +1658,29 @@ def execute(args, base: ResearchConfig) -> None:
 
     data = PathologyData(base, log)
     save_json(data.summary(), os.path.join(root, 'dataset_summary.json'))
+    datasets = {base.label_mode: data}
+
+    def get_data(mode: str) -> PathologyData:
+        if mode not in datasets:
+            datasets[mode] = PathologyData(replace(base, label_mode=mode), log)
+            save_json(datasets[mode].summary(), os.path.join(root, f'dataset_summary_{mode}.json'))
+        return datasets[mode]
     vols_np, ct_ids, ct_info = load_ct_volumes(base, os.path.join(root, 'cache'), log)
     save_json({**ct_info, 'ids': ct_ids}, os.path.join(root, 'ct_summary.json'))
     vols = torch.from_numpy(vols_np).unsqueeze(1).to(base.device)
-    images = data.images.to(base.device)
-    labels = torch.from_numpy(data.labels).long().to(base.device)
-    ch_images: Dict[Optional[str], torch.Tensor] = {None: images}
+    img_cache: Dict[Tuple, torch.Tensor] = {}
+    ctx_cache: Dict[Tuple, Optional[torch.Tensor]] = {}
+
+    def get_images(mode: str, masked: bool, drop: Optional[str]) -> torch.Tensor:
+        key = (mode, masked, drop)
+        if key not in img_cache:
+            d_ = get_data(mode)
+            x = (d_.images if masked else d_.images_nomask).to(base.device)
+            if drop is not None:
+                x = x.clone()
+                x[:, list(base.pathology_channels).index(drop)] = 0
+            img_cache[key] = x
+        return img_cache[key]
 
     si, sn = (int(v) for v in args.shard.split('/'))
     n_folds = len(planned_folds(data.patient_list, args.mode == 'smoke'))
@@ -1569,8 +1693,11 @@ def execute(args, base: ResearchConfig) -> None:
     log(f"{len(runs)} runs in this shard, {len(runs) - len(todo)} already done, {len(todo)} to do")
 
     Progress.update(force=True, total=len(runs), done=len(runs) - len(todo), status='starting')
-    if si == 0 and args.group in ('A', 'all'):
-        run_trivial_baseline(data, root, log, args.mode == 'smoke')
+    if si == 0:
+        wanted = set(GROUP_SETS.get(args.group, [args.group]))
+        for name, (mode, nopanck) in TRIVIAL_BASELINES.items():
+            if (name == 'trivial_channel_stats' and 'A' in wanted) or (name != 'trivial_channel_stats' and wanted & {'D1', 'D2'}):
+                run_trivial_baseline(get_data(mode), root, log, args.mode == 'smoke', name, nopanck)
 
     # Split the SSL pretraining jobs of the whole group across workers up front, so no GPU
     # sits idle waiting for an encoder another worker is training.
@@ -1598,27 +1725,39 @@ def execute(args, base: ResearchConfig) -> None:
     for cond, seed, fold, test_p, val_p in todo:
         t0 = time.time()
         cfg = condition_config_for(base, cond, seed, args.mode == 'smoke')
-        te = np.where(data.patients == test_p)[0]
-        va = np.where(data.patients == val_p)[0]
-        tr = np.where((data.patients != test_p) & (data.patients != val_p))[0]
-        if cfg.drop_channel not in ch_images:
-            x = images.clone()
-            x[:, list(cfg.pathology_channels).index(cfg.drop_channel)] = 0
-            ch_images[cfg.drop_channel] = x
-        imgs = ch_images[cfg.drop_channel]
+        dat = get_data(cfg.label_mode)
+        if cfg.val_rotation == 'prev':                  # validation patient = previous one in the rotation
+            pl = dat.patient_list
+            val_p = pl[(pl.index(test_p) - 1) % len(pl)]
+        te = np.where(dat.patients == test_p)[0]
+        va = np.where(dat.patients == val_p)[0]
+        tr = np.where((dat.patients != test_p) & (dat.patients != val_p))[0]
+        n_pool = len(tr)
+        if cfg.train_budget_per_class:                  # strictly limited annotation budget
+            rb = np.random.default_rng(seed * 1000 + fold + 77)
+            tr = np.sort(np.concatenate([rb.choice(tr[dat.labels[tr] == c],
+                                                   min(cfg.train_budget_per_class, int((dat.labels[tr] == c).sum())),
+                                                   replace=False) for c in range(cfg.n_way)]))
+        imgs = get_images(cfg.label_mode, cfg.use_dapi_roi_mask, cfg.drop_channel)
+        labels = torch.from_numpy(dat.labels).long().to(base.device)
+        ck = (cfg.label_mode, cfg.context_source)
+        if ck not in ctx_cache:
+            ctx_cache[ck] = build_context_table(cfg, dat, base.device)
+        ctx = ctx_cache[ck]
         Progress.update(force=True, status=f"{cond} s{seed} f{fold}", epoch='building CT bank')
         bank = banks.get(cfg)
         run_seed = seed * 1000 + fold
         log(f"RUN {cond} seed={seed} fold={fold} test={test_p} val={val_p} "
             f"train/val/test={len(tr)}/{len(va)}/{len(te)} K={cfg.k_shot} ssl=({cfg.ssl_epochs},{cfg.ssl_temperature},{cfg.ssl_max_epochs})")
 
-        model, info = train_fold(cfg, imgs, labels, bank, tr, va, run_seed, log)
-        ev = forward_eval(model, imgs[te], bank, cfg, torch.Generator().manual_seed(999))
-        y_te = data.labels[te]
+        model, info = train_fold(cfg, imgs, labels, bank, tr, va, run_seed, log, ctx)
+        ev = forward_eval(model, imgs[te], bank, cfg, torch.Generator().manual_seed(999),
+                          None if ctx is None else ctx[te])
+        y_te = dat.labels[te]
         m = binary_metrics(y_te, ev['prob'].numpy())
         records = []
         for j, i in enumerate(te):
-            rec = {'name': data.names[i], 'patient': test_p, 'y': int(y_te[j]), 'prob': float(ev['prob'][j]),
+            rec = {'name': dat.names[i], 'patient': test_p, 'y': int(y_te[j]), 'prob': float(ev['prob'][j]),
                    'topk': ev['idx'][j].tolist(), 'margin_cls': float(ev['m_cls'][j])}
             if 'm_glob' in ev:
                 rec['margin_glob'] = float(ev['m_glob'][j])
@@ -1627,28 +1766,43 @@ def execute(args, base: ResearchConfig) -> None:
                 rec['gate_mean'] = float(ev['gate'][j])
             records.append(rec)
         result = {'condition': cond, 'seed': seed, 'fold': fold, 'n_folds': n_folds, 'test_patient': test_p, 'val_patient': val_p,
-                  'sizes': {'train': len(tr), 'val': len(va), 'test': len(te)},
-                  'class_counts': {'train': np.bincount(data.labels[tr], minlength=2).tolist(),
-                                   'val': np.bincount(data.labels[va], minlength=2).tolist(),
+                  'sizes': {'train': len(tr), 'val': len(va), 'test': len(te), 'train_pool': n_pool},
+                  'unique_labelled_train_tiles': int(len(tr)),
+                  'class_counts': {'train': np.bincount(dat.labels[tr], minlength=2).tolist(),
+                                   'val': np.bincount(dat.labels[va], minlength=2).tolist(),
                                    'test': np.bincount(y_te, minlength=2).tolist()},
                   'overrides': CONDITIONS[cond], 'config': asdict(cfg), 'test_metrics': m,
                   'records': records, **info}
 
         d = run_dir(root, cond, seed, fold)
         if cond in EXTRAS_CONDITIONS:
-            # test-time bank swap: same trained model, context replaced (R1.2)
-            swaps = {}
+            # test-time bank swap: same trained model, context replaced. Besides probabilities,
+            # record logit margins, change of the fused feature and decision flips per tile.
+            swaps, swap_diag = {}, {}
+
+            def swap_record(e2):
+                a0, a1 = ev['a'], e2['a']
+                d = {'prob': e2['prob'].tolist(), 'margin_cls': e2['m_cls'].tolist(),
+                     'aligned_cos': F.cosine_similarity(a0, a1, dim=1).tolist(),
+                     'aligned_l2': (a0 - a1).norm(dim=1).tolist(),
+                     'decision_flip': ((e2['prob'] >= 0.5) != (ev['prob'] >= 0.5)).int().tolist()}
+                if 'm_glob' in e2:
+                    d['margin_glob'] = e2['m_glob'].tolist()
+                return d
             for alt in ('random_init', 'gaussian', 'dim_shuffle', 'mean'):
                 acfg = replace(cfg, ct_bank=alt)
                 e2 = forward_eval(model, imgs[te], banks.get(acfg), cfg, torch.Generator().manual_seed(999))
                 swaps[alt] = e2['prob'].tolist()
+                swap_diag[alt] = swap_record(e2)
             e2 = forward_eval(model, imgs[te], bank, replace(cfg, retrieval_mode='random'),
                               torch.Generator().manual_seed(999))
             swaps['random_retrieval'] = e2['prob'].tolist()
+            swap_diag['random_retrieval'] = swap_record(e2)
             result['bank_swap_probs'] = swaps
+            result['bank_swap_diagnostics'] = swap_diag
             os.makedirs(d, exist_ok=True)
             np.savez_compressed(os.path.join(d, 'features.npz'), path=ev['f'].numpy(), aligned=ev['a'].numpy(),
-                                context=ev['r'].numpy(), y=y_te, names=np.array([data.names[i] for i in te]))
+                                context=ev['r'].numpy(), y=y_te, names=np.array([dat.names[i] for i in te]))
             bank_path = os.path.join(root, 'banks', f'{cond}_seed{seed}.pt')
             if not os.path.exists(bank_path):
                 os.makedirs(os.path.dirname(bank_path), exist_ok=True)
@@ -1816,12 +1970,15 @@ def aggregate(roots: List[str], out: str) -> None:
         v = boot(c, seeds_of[c])
         row['bal_acc_ci'] = np.nanpercentile(v[:, 0], [2.5, 97.5]).tolist()
         row['auc_ci'] = np.nanpercentile(v[:, 1], [2.5, 97.5]).tolist()
-        shared = sorted(set(seeds_of[c]) & set(seeds_of.get('main', [])))
-        if c != 'main' and shared:
+        # reference: 'main' (groups A-C) or 'ref_main' (group D run on its own); tumour-versus-margin
+        # conditions use a different label and are not compared with the tumour-versus-stroma reference
+        ref = 'main' if 'main' in seeds_of else 'ref_main'
+        shared = sorted(set(seeds_of[c]) & set(seeds_of.get(ref, [])))
+        if c != ref and shared and not c.startswith('tm_'):
             # paired comparison with the full model on the shared seeds and the same patient draws
-            dv = boot(c, shared) - boot('main', shared)
+            dv = boot(c, shared) - boot(ref, shared)
             pc = per_seed[(per_seed.condition == c) & per_seed.seed.isin(shared)][['balanced_accuracy', 'auc_roc']].mean().values
-            pm = per_seed[(per_seed.condition == 'main') & per_seed.seed.isin(shared)][['balanced_accuracy', 'auc_roc']].mean().values
+            pm = per_seed[(per_seed.condition == ref) & per_seed.seed.isin(shared)][['balanced_accuracy', 'auc_roc']].mean().values
             row['delta_seeds'] = shared
             row['delta_bal_acc'] = float(pc[0] - pm[0])
             row['delta_bal_acc_ci'] = np.nanpercentile(dv[:, 0], [2.5, 97.5]).tolist()
@@ -1929,10 +2086,10 @@ def aggregate(roots: List[str], out: str) -> None:
             import traceback
             log(f"WARNING {name} failed: {e}\n{traceback.format_exc()}")
 
-    # ---- retrieval / alignment diagnostics (R1.2) ----
+    # ---- retrieval / alignment diagnostics ----
     summary['retrieval_alignment_diagnostics'] = guarded('retrieval diagnostics',
                                                          lambda: retrieval_diagnostics(complete, roots, out, log))
-    # ---- SSL convergence + sensitivity (R1.3) ----
+    # ---- SSL convergence + sensitivity ----
     summary['ssl'] = guarded('SSL report', lambda: ssl_report(roots, per_seed, out, log))
 
     # ---- calibration figure ----
@@ -1967,9 +2124,9 @@ def aggregate(roots: List[str], out: str) -> None:
 
 def paper_extras(roots, complete, oof, per_seed, ds, summary, out, log) -> None:
     """Dataset/label-audit/hyper-parameter/confusion/compute tables and ROC, t-SNE and
-    training-curve figures for the revised manuscript and the response letter."""
+    training-curve figures of the paper."""
     T, Fg = os.path.join(out, 'tables'), os.path.join(out, 'figures')
-    # ---- dataset table (R2.2, R2.3) ----
+    # ---- dataset table ----
     if ds:
         rows = []
         for p, d in ds['tiles_per_patient_by_roi_type'].items():
@@ -1983,7 +2140,7 @@ def paper_extras(roots, complete, oof, per_seed, ds, summary, out, log) -> None:
                      'Used: tumour / non-tumour': f"{cc.get('1', cc.get(1, 0))} / {cc.get('0', cc.get(0, 0))}"})
         _write_table(pd.DataFrame(rows), out, 'dataset_patients',
                      'HNSCC-mIF-mIHC tiles per patient and ROI type; the task uses T (tumour) vs S (stroma).')
-        # label audit (R2.5): ROI type vs the original nuclei-mask threshold label
+        # label audit: ROI type vs the original nuclei-mask threshold label
         x = ds['roi_type_x_legacy_label']
         audit = [{'ROI type': t, 'Old label = non-tumour': x.get(f'{t}_0', 0), 'Old label = tumour': x.get(f'{t}_1', 0)}
                  for t in ('T', 'M', 'S')]
@@ -2319,8 +2476,8 @@ def launch(run: str, out: str, ct_dir: Optional[str] = None, path_dir: Optional[
            aggregate_after: bool = True, zip_after: bool = True) -> None:
     """Start one worker process per GPU, show live progress, then aggregate + zip."""
     import subprocess
-    if run not in ('full', 'A', 'B', 'C', 'smoke'):
-        raise ValueError(f"RUN must be 'full', 'A', 'B', 'C' or 'smoke', got {run!r}")
+    if run not in ('full', 'ABC', 'A', 'B', 'C', 'D', 'D1', 'D2', 'smoke'):
+        raise ValueError(f"RUN must be 'full', 'ABC', 'A', 'B', 'C', 'D', 'D1', 'D2' or 'smoke', got {run!r}")
     mode = 'smoke' if run == 'smoke' else 'full'
     group = 'all' if run in ('full', 'smoke') else run
     devices = [f'cuda:{i}' for i in range(torch.cuda.device_count()) for _ in range(WORKERS_PER_GPU)] or ['cpu']
@@ -2428,10 +2585,10 @@ def launch(run: str, out: str, ct_dir: Optional[str] = None, path_dir: Optional[
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--run', default=None, help="override RUN: full | A | B | C | smoke")
+    ap.add_argument('--run', default=None, help="override RUN: full | ABC | D | A | B | C | D1 | D2 | smoke")
     ap.add_argument('--worker', action='store_true', help='internal: run one shard directly')
     ap.add_argument('--mode', choices=['full', 'smoke'], default='full')
-    ap.add_argument('--group', choices=['A', 'B', 'C', 'all'], default=None)
+    ap.add_argument('--group', choices=['A', 'B', 'C', 'D1', 'D2', 'D', 'ABC', 'all'], default=None)
     ap.add_argument('--shard', default='0/1', help='i/n: run every n-th run starting at i')
     ap.add_argument('--only', default=None, help='comma-separated condition names')
     ap.add_argument('--device', default=None)
@@ -2447,7 +2604,7 @@ def main():
         aggregate(args.aggregate or [OUTPUT_ROOT], args.agg_out)
         return
     if args.list:
-        for gname in ['A', 'B', 'C']:
+        for gname in ['A', 'B', 'C', 'D1', 'D2']:
             n = sum(len(seeds) for _, seeds in GROUPS[gname])
             print(f"group {gname}: {len(GROUPS[gname])} conditions, {n} condition-seeds, "
                   f"{n * 8} runs (8 LOPO folds): {[c for c, _ in GROUPS[gname]]}")

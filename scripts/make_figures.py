@@ -1,11 +1,15 @@
 """Regenerate the data figures of the paper from the saved run outputs in results/.
 
-Usage:  python scripts/make_figures.py      (writes PDF + PNG to docs/figures/)
+Usage:  python scripts/make_figures.py                (all figures, PDF + PNG to docs/figures/)
+        python scripts/make_figures.py forest harder  (selected figures)
 
-The computations mirror main.py (paper_extras, retrieval_diagnostics, ssl_report,
-reliability_figure and the aggregated condition summary), so every plotted value is
-identical to the corresponding table in results/aggregate/tables/. Fonts: Latin
-Modern Roman (GUST Font License), bundled in scripts/fonts/."""
+Figures: forest, ssl, tsne, usage, roc, reliability (groups A-C, from results/) and
+harder (group D, from results/group_d/aggregate/ and results/analysis/; run
+scripts/analysis.py first). The computations mirror main.py (paper_extras,
+retrieval_diagnostics, ssl_report, reliability_figure and the aggregated condition
+summary), so every plotted value is identical to the corresponding table in
+results/aggregate/tables/ or results/group_d/aggregate/tables/. Fonts: Latin Modern
+Roman (GUST Font License), bundled in scripts/fonts/."""
 import os, json, ast, warnings
 import numpy as np, pandas as pd, torch
 import matplotlib
@@ -19,6 +23,8 @@ import logging; logging.getLogger('fontTools').setLevel(logging.ERROR)
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, '..', 'results')
 AGG = os.path.join(ROOT, 'aggregate')
+AGG_D = os.path.join(ROOT, 'group_d', 'aggregate')
+ANA = os.path.join(ROOT, 'analysis')
 OUT = os.path.join(HERE, '..', 'docs', 'figures')
 CHECK = {}
 
@@ -106,15 +112,14 @@ def forest():
                                             ('abl_free_gate', 'No gate floor / usage penalty')]),
               ('Component ablations', [('abl_no_cdam', '\u2212Fusion (CDAM, gate)'), ('abl_no_adv', '\u2212Adversarial'),
                                        ('abl_no_ctr', '\u2212InfoNCE'), ('abl_no_proto', '\u2212Prototypes')]),
-              ('Support size', [('main_k8', 'Full model, $K=8$')]),
-              ('Channel drop (seed 0)', [(f'drop_{c}', f'\u2212{c}') for c in ('CD3', 'CD8', 'FoxP3', 'PanCK', 'DAPI')])]
-    rows, y, ypos, heads = [], 0, [], []
+              ('Support size', [('main_k8', 'Full model, $K=8$')])]
+    rows, y, heads = [], 0, []
     for g, items in groups:
         heads.append((y, g)); y += 1
         for c, lab in items:
             rows.append((c, lab, y)); y += 1
         y += 0.35
-    fig, axes = plt.subplots(1, 2, figsize=(14.35 * CM, 11.0 * CM), sharey=True, gridspec_kw={'wspace': 0.08})
+    fig, axes = plt.subplots(1, 2, figsize=(14.35 * CM, 8.6 * CM), sharey=True, gridspec_kw={'wspace': 0.08})
     for ax, key, scale, xl, pl in ((axes[0], 'bal_acc', 100, '$\\Delta$ balanced accuracy (pp)', '(a)'),
                                    (axes[1], 'auc', 1, '$\\Delta$ AUC', '(b)')):
         for c, lab, yy in rows:
@@ -138,11 +143,10 @@ def forest():
     ticks = [yy for _, _, yy in rows] + [yy for yy, _ in heads]
     labs = [lab for _, lab, _ in rows] + [g for _, g in heads]
     axes[0].set_yticks(ticks); axes[0].set_yticklabels(labs)
-    for t, (yy) in zip(axes[0].get_yticklabels(), ticks):
+    for t, yy in zip(axes[0].get_yticklabels(), ticks):
         if yy in [h for h, _ in heads]:
             t.set_fontweight('bold')
     axes[0].set_ylim(y - 0.6, -0.8)
-    axes[1].set_xlim(-0.30, 0.06)
     save(fig, 'forest_controls')
 
 
@@ -311,9 +315,60 @@ def reliability():
     save(fig, 'reliability_main')
 
 
+# =================================================================== harder tasks, positive controls, budgets
+def harder():
+    ps = pd.read_csv(os.path.join(AGG_D, 'tables', 'per_condition_seed_metrics.csv'))
+    base = pd.read_csv(os.path.join(ANA, 'baselines_group_d.csv')).set_index('condition')
+
+    def seeds(c):
+        return 100 * ps[ps.condition == c]['balanced_accuracy'].values
+
+    POS = '#009E73'     # informative-context positive control
+    ORC = '#CC79A7'     # oracle positive control
+    fig, axes = plt.subplots(1, 3, figsize=(TXT, 5.4 * CM), gridspec_kw={'width_ratios': [1.55, 1.25, 0.9], 'wspace': 0.42})
+
+    def strip(ax, items, ref=None, ref_label=None, ylim=(60, 101)):
+        for i, (c, lab, col) in enumerate(items):
+            v = seeds(c) if c in set(ps.condition) else np.array([100 * base.loc[c, 'bal']])
+            ax.bar(i, v.mean(), width=0.62, color=col, alpha=0.85, zorder=2)
+            ax.plot(np.full(len(v), i) + np.linspace(-0.12, 0.12, len(v)), v, 'o', ms=2.8, color='#222222', zorder=3)
+            CHECK[f'harder {c}'] = round(float(v.mean()), 2)
+        if ref is not None:
+            ax.axhline(ref, color='#666666', lw=0.7, ls='--', zorder=1)
+            ax.text(-0.4, ref + 0.6, ref_label, ha='left', va='bottom', fontsize=FS - 1, color='#555555')
+        ax.set_xticks(range(len(items))); ax.set_xticklabels([lab for _, lab, _ in items], rotation=35, ha='right')
+        ax.set_ylim(*ylim); ax.grid(axis='x', visible=False)
+
+    ref = seeds('ref_main').mean()
+    strip(axes[0], [('hard_path_only', 'Pathology-only', PATH), ('hard_main', 'CT bank', FULL),
+                    ('hard_bank_gaussian', 'Gaussian bank', CTC), ('nopanck_trivial_channel_stats', 'Channel stats', STATS),
+                    ('pos_panck_context', 'PanCK context', POS), ('pos_oracle_context', 'Oracle context', ORC)],
+          ref, 'full input')
+    axes[0].set_ylabel('Balanced accuracy (%)')
+    panel(axes[0], '(a)', x=0.0, y=1.02, ha='left')
+
+    ax = axes[1]
+    xs = np.array([2, 4, 8, 16])
+    for m, col, lab in (('main', FULL, 'Full model'), ('path_only', PATH, 'Pathology-only')):
+        v = np.array([seeds(f'budget{b}_{m}') for b in xs])
+        ax.errorbar(xs * (1.03 if m == 'main' else 0.97), v.mean(1), yerr=v.std(1, ddof=1), color=col, marker='o', ms=3.2,
+                    capsize=2, lw=1.1, label=lab)
+        CHECK[f'budget {m}'] = v.mean(1).round(2).tolist()
+    ax.axhline(ref, color='#666666', lw=0.7, ls='--', zorder=1)
+    ax.set_xscale('log', base=2); ax.set_xticks(xs); ax.set_xticklabels([str(x) for x in xs])
+    ax.set_xlabel('Labelled training tiles per class'); ax.set_ylim(55, 101)
+    ax.legend(loc='lower right', fontsize=FS - 1)
+    panel(ax, '(b)', x=0.0, y=1.02, ha='left')
+
+    strip(axes[2], [('tm_path_only', 'Pathology-only', PATH), ('tm_main', 'CT bank', FULL),
+                    ('tm_trivial_channel_stats', 'Channel stats', STATS)], ylim=(60, 101))
+    panel(axes[2], '(c)', x=0.0, y=1.02, ha='left')
+    save(fig, 'harder_tasks')
+
+
 if __name__ == '__main__':
     import sys
-    which = sys.argv[1:] or ['forest', 'ssl', 'tsne', 'usage', 'roc', 'reliability']
+    which = sys.argv[1:] or ['forest', 'ssl', 'tsne', 'usage', 'roc', 'reliability', 'harder']
     for w in which:
         globals()[w]()
     for k, v in CHECK.items():

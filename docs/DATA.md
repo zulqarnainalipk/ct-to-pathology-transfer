@@ -51,6 +51,8 @@ Tumour core (T) is the positive class and stroma (S) the negative class; margin 
 | Case8 | 12 | 12 | 12 | 12 / 12 |
 | Total | 94 | 96 | 78 | 94 / 78 |
 
+As a harder secondary task (group D, `label_mode='roi_t_vs_m'`), tumour core (positive) is classified against tumour margin (negative), with stroma excluded: 190 tiles (94 tumour core, 96 margin), and every patient again contributes both classes. Margin regions also contain tumour cells, so this task depends less on the presence of PanCK. Tile counts for this task are saved in `results/group_d/dataset_summary_roi_t_vs_m.json`.
+
 The five mIF channels (CD3, CD8, FoxP3, PanCK, DAPI) are resized to 224 x 224 and masked with a label-blind region derived from the 75th percentile of the DAPI channel.
 
 ### Note on the segmentation images
@@ -59,4 +61,8 @@ The `Segmentation/` images are nuclear instance masks (filled nuclei and their o
 
 ### Task difficulty
 
-Tumour core and stroma differ strongly in the epithelial marker PanCK: its mean intensity alone separates the two classes with an AUC of 0.998, and a logistic regression on 15 per-channel intensity statistics reaches 98.1% balanced accuracy. Any model on this task should be compared against such a baseline.
+Tumour core and stroma differ strongly in the epithelial marker PanCK: its mean intensity alone separates the two classes with an AUC of 0.998, and a logistic regression on 15 per-channel intensity statistics reaches 98.1% balanced accuracy. Any model on this task should be compared against such a baseline. Without PanCK (in the input and in the baseline features), or on tumour core versus margin, the task becomes harder: the same baseline reaches 75.6% and 77.9%, and the networks reach about 76 to 78%.
+
+## Ethics
+
+This work is a secondary analysis of two public, de-identified image collections distributed by TCIA. The data were collected by the contributing institutions under their own approvals and are released for research use under the TCIA data-use terms, without identifiable information. The author had no access to identifiable data and no interaction with participants, so no additional ethical approval or informed consent was required.
